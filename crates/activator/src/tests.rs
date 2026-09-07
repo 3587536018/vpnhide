@@ -251,12 +251,21 @@ fn builtin_projection_gates_filesystem_hook_on_the_optional_feature() {
     let filesystem_bit = Hook::FilesystemIfacePaths.bit();
     let mask = |cfg: &_, family| {
         let wire = project_native_with_resolver_for_family(cfg, &resolver, family);
-        vpnhide_protocol::parse_config(wire.as_bytes()).unwrap().targets[0].hookmask
+        vpnhide_protocol::parse_config(wire.as_bytes())
+            .unwrap()
+            .targets[0]
+            .hookmask
     };
 
     // Built-in: gated in the mask, exactly like zygisk.
-    assert_eq!(mask(&disabled, NativeHookFamily::Builtin) & filesystem_bit, 0);
-    assert_ne!(mask(&enabled, NativeHookFamily::Builtin) & filesystem_bit, 0);
+    assert_eq!(
+        mask(&disabled, NativeHookFamily::Builtin) & filesystem_bit,
+        0
+    );
+    assert_ne!(
+        mask(&enabled, NativeHookFamily::Builtin) & filesystem_bit,
+        0
+    );
 
     // Load-gated families keep the bit even when the feature is off.
     assert_ne!(mask(&disabled, NativeHookFamily::Kmod) & filesystem_bit, 0);

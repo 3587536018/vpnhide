@@ -8,7 +8,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use crate::{
     APATCH_DIR, KMOD_CTL, KPM_CTL_LOCK, KpmBootOutcome, KpmBootReport,
     OPTIONAL_FEATURE_FILESYSTEM_IFACE_PATHS, PORTS_CHAIN4, PORTS_CHAIN6, PORTS_STATUS_DIR, Result,
-    activate_kmod_boot, activate_builtin_boot, activate_kpm_boot, activate_ports_recorded,
+    activate_builtin_boot, activate_kmod_boot, activate_kpm_boot, activate_ports_recorded,
     activate_zygisk_boot, kmod_backend_present, load_kpm_boot, optional_feature_enabled,
     optional_feature_enabled_or_default, write_atomic,
 };
