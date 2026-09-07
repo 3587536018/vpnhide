@@ -46,11 +46,13 @@ int main(int argc, char **argv)
 
 	fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (fd < 0) {
-		printf("BIND_NAME_RAW_ERRNO=%d\nBIND_NAME_RAW_STATE=-1\n", errno);
+		printf("BIND_NAME_RAW_ERRNO=%d\nBIND_NAME_RAW_STATE=-1\n",
+		       errno);
 		return 0;
 	}
 
-	if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, name, strlen(name)) != 0)
+	if (setsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, name, strlen(name)) !=
+	    0)
 		err = errno;
 
 	if (getsockopt(fd, SOL_SOCKET, SO_BINDTODEVICE, buf, &len) != 0)
