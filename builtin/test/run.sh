@@ -49,7 +49,7 @@ NDK_CC="$(find "$HOME/Android/Sdk/ndk" -type f -path '*/toolchains/llvm/prebuilt
 NDK_CC32="$(find "$HOME/Android/Sdk/ndk" -type f -path '*/toolchains/llvm/prebuilt/*/bin/armv7a-linux-androideabi*-clang' 2>/dev/null | sort | tail -1 || true)"
 build_probe() { # <cc> <src> <out>; echoes out path or empty
 	local cc="$1" src="$2" out="$3"
-	[ -n "$cc" ] && [ -x "$cc" ] || { echo ""; return; }
+	if [ -z "$cc" ] || [ ! -x "$cc" ]; then echo ""; return; fi
 	"$cc" -static -O2 -o "$out" "$src" 2>/dev/null && echo "$out" || echo ""
 }
 resolve_probe() { # <prebuilt> <cc> <src> <out>; prefers an executable prebuilt
