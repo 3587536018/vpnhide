@@ -98,11 +98,10 @@ dance disappears.
 - [x] Phase 3b(iii) — fs call-site patches (filename_lookup, do_filp_open, vfs_getattr, iterate_dir).
       Compile-validated in BOTH configs: FS_HIDING=n (patched fs objects build against header stubs,
       no hook_fs.o) and FS_HIDING=y (real hooks + hook_fs.o), zero warnings.
-- [ ] Phase 4 — QEMU run gate (reuse `kmod/test` / protocol vectors)
 - [x] Phase 5a — activator: `activate_builtin` / `boot_service_builtin` / `uninstall_builtin` + `builtin` bin
-- [ ] Phase 5b — app (Kotlin): `NativeBackendId.Kpatch`, snapshot section for the ctl `backend` id
-      (disambiguates kmod vs builtin on the shared node), `detectKpatchModule`, dashboard card
-- [ ] Phase 5c — `vpnhide_builtin` companion module (module.prop + boot scripts running the activator)
+- [x] Phase 5b — app (Kotlin): `NativeBackendId.Builtin`, snapshot section for the ctl `backend` id
+      (disambiguates kmod vs builtin on the shared node), `detectBuiltinModule`, dashboard card
+- [x] Phase 5c — `vpnhide_builtin` companion module (module.prop + boot scripts running the activator)
 - [x] Phase 4 — QEMU functional run gate (builtin/test/): boots an Image with CONFIG_VPNHIDE=y and runs
       the shared vector suite. android14-6.1: pass=35 fail=0 panic=0 — every vector hidden for the target
       UID, preserved for the non-target (ioctl/getifaddrs/routes/host-route/rule/fs/all bind cases).
@@ -134,6 +133,16 @@ dance disappears.
       driver paths wholesale (only 4 call sites diverge: old `<asm/uaccess.h>`, 2-arg `vfs_getattr_nosec`,
       rt6_fill_node's prefix block). **Nine KMIs proven end-to-end** (6.1, 6.6, 6.12, 5.15, 5.10, 5.4,
       4.19, 4.14, 4.9).
+- [x] Phase 7 — CI gate: `builtin-qemu` job in `.github/workflows/ci.yml` runs the QEMU vector suite on
+      the modern non-LTO KMIs (6.1 / 6.6 / 6.12) per PR — applies `apply.sh` to the baked ddk-qemu kernel
+      tree, rebuilds the Image with `CONFIG_VPNHIDE=y`, and boots it. `run.sh` takes its native probes as
+      prebuilt `VPNHIDE_*_BIN` (the ddk-qemu image has no NDK). All three green.
+
+Remaining follow-ups (not blockers for the backend itself):
+- CI coverage for the full-LTO GKI KMIs (5.10 / 5.15) and the from-source legacy KMIs, like the KPM's
+  `kpm-qemu-legacy` job. Only 6.1 / 6.6 / 6.12 are gated today.
+- A publish job for `vpnhide-builtin.zip` plus `update-json/update-builtin.json`, so in-app module
+  updates resolve (the zip builds via `builtin/build.py`, but nothing on `main` serves the update JSON yet).
 
 ### Generating the call-site patches (Phase 3b)
 
