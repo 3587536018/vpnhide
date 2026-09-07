@@ -55,6 +55,16 @@ cat > "update-json/update-kpm.json" <<EOJSON
 EOJSON
 echo "  update-json/update-kpm.json"
 
+cat > "update-json/update-builtin.json" <<EOJSON
+{
+  "version": "v${VERSION}",
+  "versionCode": ${VERSION_CODE},
+  "zipUrl": "${REPO}/releases/download/v${VERSION}/vpnhide-builtin.zip",
+  "changelog": "${RAW}/update-json/changelog.md"
+}
+EOJSON
+echo "  update-json/update-builtin.json"
+
 cat > "update-json/update-ports.json" <<EOJSON
 {
   "version": "v${VERSION}",

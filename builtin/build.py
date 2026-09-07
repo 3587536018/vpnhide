@@ -15,6 +15,7 @@ Output: vpnhide-builtin.zip (repo root by default).
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shutil
 import sys
@@ -28,10 +29,6 @@ from build_lib import (  # type: ignore[import-not-found]  # noqa: E402
     build_activator_bin,
     get_build_version,
     make_zip,
-)
-
-UPDATE_JSON_URL = (
-    "https://raw.githubusercontent.com/okhsunrog/vpnhide/main/update-json/update-builtin.json"
 )
 
 
@@ -52,20 +49,24 @@ def main() -> int:
     shutil.copy(activator, staging / "activator")
     (staging / "activator").chmod(0o755)
 
-    # Stamp the build version + update URL into module.prop. The committed
-    # module.prop keeps the last release version so PR diffs don't churn it; the
-    # gkiVariant field the .ko carries is intentionally absent — this module is
-    # KMI-agnostic. versionCode is left to the release flow (as in kmod).
+    # Stamp the build version into module.prop. The committed module.prop keeps
+    # the last release version so PR diffs don't churn it; the gkiVariant field
+    # the .ko carries is intentionally absent — this module is KMI-agnostic.
+    # versionCode is left to the release flow (as in kmod).
     build_version = get_build_version(REPO_ROOT)
     module_prop = staging / "module.prop"
     content = module_prop.read_text(encoding="utf-8")
     content = re.sub(r"^version=.*", f"version=v{build_version}", content, flags=re.MULTILINE)
-    if re.search(r"^updateJson=", content, flags=re.MULTILINE):
-        content = re.sub(
-            r"^updateJson=.*", f"updateJson={UPDATE_JSON_URL}", content, flags=re.MULTILINE
-        )
-    else:
-        content = content.rstrip() + f"\nupdateJson={UPDATE_JSON_URL}\n"
+    # CI sets UPDATE_JSON_URL so Magisk/KSU knows where to check for updates;
+    # local dev builds leave it unset and ship without updateJson (as zygisk does).
+    update_json_url = os.environ.get("UPDATE_JSON_URL")
+    if update_json_url:
+        if re.search(r"^updateJson=", content, flags=re.MULTILINE):
+            content = re.sub(
+                r"^updateJson=.*", f"updateJson={update_json_url}", content, flags=re.MULTILINE
+            )
+        else:
+            content = content.rstrip() + f"\nupdateJson={update_json_url}\n"
     module_prop.write_text(content, encoding="utf-8")
     print(f"[builtin] stamped module.prop version=v{build_version}")
 

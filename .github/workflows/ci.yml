@@ -689,6 +689,50 @@ jobs:
           path: zygisk/target/vpnhide-zygisk.zip
           if-no-files-found: error
 
+  # Publish gate for the in-tree backend's companion module. Unlike kmod it
+  # ships no .ko (the driver is compiled into the user's kernel); build.py only
+  # cross-compiles the `builtin` activator (cargo-ndk, arm64) and zips
+  # builtin/module/ into one KMI-agnostic vpnhide-builtin.zip. The builtin-qemu
+  # jobs are the runtime *test* gate; this is the *publish* gate.
+  builtin:
+    needs: setup
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ needs.setup.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0           # get_build_version's `git describe`
+
+      - name: Mark workspace safe
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Cache cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            /usr/local/cargo/registry
+            /usr/local/cargo/git
+            target
+          key: cargo-${{ runner.os }}-builtin-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-builtin-
+
+      - name: Build module zip
+        env:
+          UPDATE_JSON_URL: https://raw.githubusercontent.com/okhsunrog/vpnhide/main/update-json/update-builtin.json
+        run: python3 builtin/build.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: vpnhide-builtin
+          path: vpnhide-builtin.zip
+          if-no-files-found: error
+
   lsposed:
     needs: setup
     runs-on: ubuntu-latest
@@ -819,7 +863,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: [kmod, kpm, zygisk, lsposed, portshide]
+    needs: [kmod, kpm, builtin, zygisk, lsposed, portshide]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     # Only the release job needs write — used by softprops/action-gh-release
