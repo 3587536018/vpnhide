@@ -227,7 +227,7 @@ impl KpmClient {
                 let args = options.args().map(CString::new).transpose()?;
                 let rc = unsafe {
                     syscall(
-                        APATCH_SUPERCALL_NR,
+                        APATCH_SUPERCALL_NR as c_long,
                         key.as_ptr(),
                         supercall_cmd(*style, SUPERCALL_KPM_LOAD),
                         path.as_ptr(),
@@ -558,7 +558,7 @@ fn apatch_hello(key: &str, style: ApatchCommandStyle) -> Result<c_long> {
     let key = CString::new(key)?;
     let rc = unsafe {
         syscall(
-            APATCH_SUPERCALL_NR,
+            APATCH_SUPERCALL_NR as c_long,
             key.as_ptr(),
             supercall_cmd(style, SUPERCALL_HELLO),
         )
@@ -572,7 +572,7 @@ fn apatch_kpm_list(key: &str, style: ApatchCommandStyle) -> Result<String> {
     let mut buf = [0u8; 4096];
     let rc = unsafe {
         syscall(
-            APATCH_SUPERCALL_NR,
+            APATCH_SUPERCALL_NR as c_long,
             key.as_ptr(),
             supercall_cmd(style, SUPERCALL_KPM_LIST),
             buf.as_mut_ptr().cast::<c_char>(),
@@ -611,7 +611,7 @@ fn apatch_kpm_ctl0_raw(
     let mut out = [0u8; 4096];
     let rc = unsafe {
         syscall(
-            APATCH_SUPERCALL_NR,
+            APATCH_SUPERCALL_NR as c_long,
             key.as_ptr(),
             supercall_cmd(style, SUPERCALL_KPM_CONTROL),
             name.as_ptr(),
@@ -634,7 +634,7 @@ pub(crate) fn apatch_command_candidates() -> Vec<ApatchCommandStyle> {
     apatch_command_candidates_for_hint(apatch_kernel_version_hint())
 }
 
-fn apatch_kernel_version_hint() -> Option<c_long> {
+fn apatch_kernel_version_hint() -> Option<i64> {
     let out = Command::new("dmesg").output().ok()?;
     if !out.status.success() {
         return None;

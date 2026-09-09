@@ -76,11 +76,18 @@ fn is_app_uid(uid: u32) -> bool {
 }
 const PM_READY_ATTEMPTS: u32 = 60;
 const APATCH_TRUSTED_SU_KEY: &str = "su";
-const SUPERCALL_HELLO: c_long = 0x1000;
+// i64, not c_long: these command words are fed to `supercall_cmd`
+// (vpnhide_apatch_abi::encode_command), which encodes them as 64-bit
+// (version << 32 | magic | cmd). c_long is 32-bit on armv7 (the zygisk activator
+// ships 32-bit too), which would both fail to typecheck against the i64 API and
+// truncate the encoding; on arm64 c_long is already i64, so nothing changes.
+// SUPERCALL_HELLO_MAGIC stays c_long: it is only compared against the raw
+// syscall return (also c_long), never encoded.
+const SUPERCALL_HELLO: i64 = 0x1000;
 const SUPERCALL_HELLO_MAGIC: c_long = 0x11581158;
-const SUPERCALL_KPM_LOAD: c_long = 0x1020;
-const SUPERCALL_KPM_CONTROL: c_long = 0x1022;
-const SUPERCALL_KPM_LIST: c_long = 0x1031;
+const SUPERCALL_KPM_LOAD: i64 = 0x1020;
+const SUPERCALL_KPM_CONTROL: i64 = 0x1022;
+const SUPERCALL_KPM_LIST: i64 = 0x1031;
 
 unsafe extern "C" {
     fn syscall(num: c_long, ...) -> c_long;

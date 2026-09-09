@@ -1,6 +1,7 @@
 package dev.okhsunrog.vpnhide.diagnostics
 
 import android.content.Context
+import android.os.Build
 import dev.okhsunrog.vpnhide.LogTags
 import dev.okhsunrog.vpnhide.VpnHideLog
 import dev.okhsunrog.vpnhide.checks.CheckOutput
@@ -18,7 +19,14 @@ import java.io.File
  * root) and run it via `su`.
  */
 object GroundTruthProbe {
-    private const val ASSET = "bin/arm64-v8a/vhprobe"
+    // Pick the probe asset for the device's primary ABI: the APK bundles a
+    // vhprobe per shipped ABI (arm64-v8a, armeabi-v7a). SUPPORTED_ABIS[0] is the
+    // preferred one, so a 64-bit device gets the arm64 probe and a 32-bit-only
+    // device gets the armv7 one. Fall back to arm64-v8a if the list is empty.
+    private fun probeAsset(): String {
+        val abi = Build.SUPPORTED_ABIS.firstOrNull() ?: "arm64-v8a"
+        return "bin/$abi/vhprobe"
+    }
 
     // Each entry point gets its own extraction dest and staged path so a
     // concurrent run() / selfRoutedThroughVpn() cannot cp-overwrite or rm each
@@ -75,7 +83,7 @@ object GroundTruthProbe {
     ): File? =
         runCatching {
             val dest = File(context.filesDir, name)
-            context.assets.open(ASSET).use { input -> dest.outputStream().use { input.copyTo(it) } }
+            context.assets.open(probeAsset()).use { input -> dest.outputStream().use { input.copyTo(it) } }
             dest
         }.onFailure { VpnHideLog.w(TAG, "failed to extract vhprobe asset: ${it.message}") }
             .getOrNull()

@@ -171,7 +171,7 @@ jobs:
       - name: clippy (zygisk)
         run: cargo ndk -t arm64-v8a -t armeabi-v7a clippy -p vpnhide_zygisk --tests -- -D warnings
       - name: clippy (lsposed native)
-        run: cd lsposed/native && cargo ndk -t arm64-v8a clippy --tests -- -D warnings
+        run: cd lsposed/native && cargo ndk -t arm64-v8a -t armeabi-v7a clippy --tests -- -D warnings
       - name: cargo test (workspace)
         run: cargo test -p vpnhide_protocol -p vpnhide_protocol_diff -p vpnhide_activator -p vpnhide_zygisk
       - name: cargo test (lsposed native)

@@ -21,7 +21,11 @@ use vpnhide_apatch_abi::{
 use vpnhide_checks::{run_all_json, self_routed_json};
 
 const SUPERKEY_FILE: &str = "/data/adb/vpnhide/superkey";
-const SUPERCALL_KPM_LIST: c_long = 0x1031;
+// i64, not c_long: the supercall command word is a 64-bit encoding shared with
+// `vpnhide_apatch_abi::encode_command` (version << 32 | magic | cmd). c_long is
+// 32-bit on armv7, which would both truncate the encoding and fail to typecheck
+// against the i64 API; on arm64 c_long is already i64, so behaviour is unchanged.
+const SUPERCALL_KPM_LIST: i64 = 0x1031;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -73,7 +77,7 @@ fn apatch_kpm_list() -> Option<String> {
             let buffer_len = c_long::try_from(buffer.len()).expect("KPM list buffer fits c_long");
             let rc = unsafe {
                 libc::syscall(
-                    APATCH_SUPERCALL_NR,
+                    APATCH_SUPERCALL_NR as c_long,
                     key.as_ptr(),
                     encode_command(style, SUPERCALL_KPM_LIST),
                     buffer.as_mut_ptr().cast::<c_void>(),
@@ -95,7 +99,7 @@ fn apatch_kpm_list() -> Option<String> {
     None
 }
 
-fn apatch_kernel_version_hint() -> Option<c_long> {
+fn apatch_kernel_version_hint() -> Option<i64> {
     let output = process::Command::new("dmesg").output().ok()?;
     output
         .status

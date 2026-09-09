@@ -19,10 +19,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from build_lib import (  # type: ignore[import-not-found]
-    build_activator_bin,
+    build_activator_bins,
     detect_android_ndk,
     get_build_version,
     make_zip,
+    stage_activator_bins,
 )
 
 
@@ -66,12 +67,16 @@ def main() -> int:
         env=env,
         check=True,
     )
-    activator = build_activator_bin(
+    # Zygisk hooks 32-bit app processes too (zygote32), so the activator ships
+    # for both ABIs; customize.sh keeps the one matching the device $ARCH.
+    activators = build_activator_bins(
         script_dir.parent,
         "zygisk",
+        abis=("arm64", "armv7"),
         android_ndk_home=android_ndk_home,
         target_dir=target_dir,
     )
+    assert activators is not None  # required=True by default: raises if unavailable
 
     # One .so per ABI. NeoZygisk's loader picks the matching file for each
     # target process by its bitness, so both must ship in the module.
@@ -103,8 +108,8 @@ def main() -> int:
     (staging / "zygisk").mkdir(parents=True, exist_ok=True)
     for abi, so_src in so_by_abi.items():
         shutil.copy(so_src, staging / "zygisk" / f"{abi}.so")
-    shutil.copy(activator, staging / "activator")
-    (staging / "activator").chmod(0o755)
+    # Stage both ABIs (arm64 + armv7); customize.sh selects by device $ARCH.
+    stage_activator_bins(activators, staging)
 
     # Get build version
     build_version = get_build_version(script_dir.parent)

@@ -108,6 +108,10 @@ val buildRustProbe =
                 add("ndk")
                 add("-t")
                 add("arm64-v8a")
+                // 32-bit ARM: bundled unconditionally so the release APK installs
+                // on armeabi-v7a-only devices (issue #318). Cheap to always build.
+                add("-t")
+                add("armeabi-v7a")
                 // Opt-in second ABI for the x86_64 emulator (see emulatorX86).
                 if (emulatorX86) {
                     add("-t")
@@ -129,12 +133,16 @@ val buildRustProbe =
         // File/Boolean values — required for configuration-cache serialization.
         val probeBinArm = nativeCrateDir.resolve("target/aarch64-linux-android/release/vhprobe")
         val probeDestArm = rustAssetsOut.resolve("bin/arm64-v8a/vhprobe")
+        val probeBinArmv7 = nativeCrateDir.resolve("target/armv7-linux-androideabi/release/vhprobe")
+        val probeDestArmv7 = rustAssetsOut.resolve("bin/armeabi-v7a/vhprobe")
         val probeBinX86 = nativeCrateDir.resolve("target/x86_64-linux-android/release/vhprobe")
         val probeDestX86 = rustAssetsOut.resolve("bin/x86_64/vhprobe")
         val copyX86 = emulatorX86
         doLast {
             probeDestArm.parentFile.mkdirs()
             probeBinArm.copyTo(probeDestArm, overwrite = true)
+            probeDestArmv7.parentFile.mkdirs()
+            probeBinArmv7.copyTo(probeDestArmv7, overwrite = true)
             if (copyX86) {
                 probeDestX86.parentFile.mkdirs()
                 probeBinX86.copyTo(probeDestX86, overwrite = true)
@@ -183,7 +191,7 @@ android {
         versionName = buildVersion
 
         ndk {
-            abiFilters += listOf("arm64-v8a")
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
     }
 
