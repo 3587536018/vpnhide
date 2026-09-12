@@ -1,0 +1,29 @@
+# 权限探测：验证复刻仓库中的 GITHUB_TOKEN 能否创建 Release
+name: Perm probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Try creating a release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          {
+            echo "## 权限探测"
+            echo ""
+            echo '```'
+            echo "repo=${{ github.repository }} actor=${{ github.actor }}"
+            gh release create perm-probe --repo "${{ github.repository }}" \
+              --title "perm probe" --notes "permission probe" && echo "RELEASE_CREATE=OK" || echo "RELEASE_CREATE=FAILED"
+            gh api "repos/${{ github.repository }}" --jq '.permissions' || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "probe done"
