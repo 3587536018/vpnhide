@@ -1,0 +1,305 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 专用构建工作流（复刻仓库使用）
+#
+# 触发方式：Actions → Build artifacts → Run workflow
+#
+# 产物：
+#   vpnhide.apk               LSPosed 模块 + 主应用（必装，安装到手机）
+#   vpnhide-kmod-<KMI>.zip    内核模块后端（推荐；安卓15 = android15-6.6）
+#   vpnhide-zygisk.zip        后备后端（无 GKI 内核 / 不想装 .ko 时用）
+#   vpnhide-kpm.zip           KPM 后端（旧内核 4.9~5.4 或 APatch 用户）
+#   vpnhide-ports.zip         端口隐藏模块（可选，仅需 Ports 角色时安装）
+#   vpnhide-bundle.zip        以上全部文件的合集（一次性下载）
+#
+# 说明：复用上游公开的 CI 镜像（内置 JDK17 / Rust / NDK / cargo-ndk）
+#       与 ylarod 的 DDK 内核镜像，因此本工作流无需任何 Secrets。
+# ─────────────────────────────────────────────────────────────────────────────
+name: Build artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      kmod_kmis:
+        description: "kmod KMI 列表（空格分隔，例如 android15-6.6；all = 全部 7 个）"
+        required: false
+        type: string
+        default: "all"
+      release_apk:
+        description: "构建 release 版 APK（关闭则构建 debug 版）"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-artifacts-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CI_IMAGE: ghcr.io/okhsunrog/vpnhide/ci:latest
+  # 与 kmod/build.py 中的 DDK_IMAGE_TAG 保持一致
+  DDK_IMAGE_TAG: "20260313"
+
+jobs:
+  # 解析 KMI 矩阵（all → 全部 7 个 GKI 变体）
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      kmis: ${{ steps.matrix.outputs.kmis }}
+    steps:
+      - id: matrix
+        env:
+          IN: ${{ inputs.kmod_kmis }}
+        run: |
+          set -eu
+          in="${IN:-all}"
+          if [ "$in" = "all" ] || [ -z "$in" ]; then
+            in="android12-5.10 android13-5.10 android13-5.15 android14-5.15 android14-6.1 android15-6.6 android16-6.12"
+          fi
+          json="["
+          for k in $in; do json="$json\"$k\","; done
+          json="${json%,}]"
+          echo "kmis=$json" >> "$GITHUB_OUTPUT"
+          echo "kmod 矩阵: $json"
+
+  # kmod 后端需要一个 aarch64 的 activator 可执行文件，先单独编译再供所有 KMI 复用
+  kmod-activator:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/okhsunrog/vpnhide/ci:latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Mark workspace safe
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Cache cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            /usr/local/cargo/registry
+            /usr/local/cargo/git
+            target
+          key: cargo-${{ runner.os }}-kmod-activator-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-kmod-activator-
+      - name: Build kmod activator
+        run: cargo ndk -t arm64-v8a build --release -p vpnhide_activator --bin kmod
+      - name: Upload kmod activator
+        uses: actions/upload-artifact@v7
+        with:
+          name: kmod-activator
+          path: target/aarch64-linux-android/release/kmod
+          if-no-files-found: error
+          retention-days: 7
+
+  # 内核模块：每个 KMI 一个内核树，在 DDK 镜像内编译打包
+  kmod:
+    needs: [setup, kmod-activator]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        kmi: ${{ fromJSON(needs.setup.outputs.kmis) }}
+    container:
+      image: ghcr.io/ylarod/ddk-min:${{ matrix.kmi }}-20260313
+    env:
+      KMI: ${{ matrix.kmi }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Mark workspace safe
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Download kmod activator
+        uses: actions/download-artifact@v8
+        with:
+          name: kmod-activator
+          path: .artifacts/kmod-activator
+      - name: Build and package kernel module
+        env:
+          VPNHIDE_KMOD_ACTIVATOR: ${{ github.workspace }}/.artifacts/kmod-activator/kmod
+        run: python3 kmod/build.py --kmi $KMI --inside-container
+      - name: Upload kmod artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: vpnhide-kmod-${{ matrix.kmi }}
+          path: vpnhide-kmod-${{ matrix.kmi }}.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  # 主应用 + LSPosed 模块（Kotlin + Rust）
+  apk:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/okhsunrog/vpnhide/ci:latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Mark workspace safe
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Cache cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            /usr/local/cargo/registry
+            /usr/local/cargo/git
+            lsposed/native/target
+          key: cargo-${{ runner.os }}-lsposed-${{ hashFiles('lsposed/native/Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-lsposed-
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+      - name: Set up keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          KEYSTORE_PATH="$GITHUB_WORKSPACE/lsposed/release.jks"
+          if [ -n "${KEYSTORE_BASE64:-}" ]; then
+            echo "$KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          else
+            echo "未配置 ANDROID_KEYSTORE_BASE64：生成本次构建专用的临时密钥（每次构建签名不同）。"
+            KEYSTORE_PASSWORD=ephemeral
+            KEY_ALIAS=ephemeral
+            keytool -genkeypair -v \
+              -keystore "$KEYSTORE_PATH" \
+              -storepass "$KEYSTORE_PASSWORD" \
+              -keypass "$KEYSTORE_PASSWORD" \
+              -alias "$KEY_ALIAS" \
+              -keyalg RSA -keysize 4096 -validity 365 \
+              -dname "CN=vpnhide-personal-build, O=vpnhide, C=US"
+          fi
+          {
+            printf 'password=%s\n' "$KEYSTORE_PASSWORD"
+            printf 'keyAlias=%s\n' "$KEY_ALIAS"
+            printf 'storeFile=%s\n' "$KEYSTORE_PATH"
+          } > "$GITHUB_WORKSPACE/lsposed/keystore.properties"
+      - name: Build APK
+        env:
+          RELEASE: ${{ inputs.release_apk }}
+        run: |
+          cd "$GITHUB_WORKSPACE/lsposed"
+          if [ "$RELEASE" = "true" ]; then
+            ./gradlew -PvpnhideWarningsAsErrors=true assembleRelease
+            cp app/build/outputs/apk/release/app-release.apk "$GITHUB_WORKSPACE/vpnhide.apk"
+          else
+            ./gradlew -PvpnhideWarningsAsErrors=true assembleDebug
+            cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/vpnhide.apk"
+          fi
+      - name: Upload APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: vpnhide-apk
+          path: vpnhide.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  # Zygisk 后备后端（arm64 + armv7 两个 ABI）
+  zygisk:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/okhsunrog/vpnhide/ci:latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: Mark workspace safe
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Cache cargo
+        uses: actions/cache@v6
+        with:
+          path: |
+            /usr/local/cargo/registry
+            /usr/local/cargo/git
+            zygisk/target
+          key: cargo-${{ runner.os }}-zygisk-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-zygisk-
+      - name: rustup target add armv7 (zygisk 32-bit)
+        run: rustup target add armv7-linux-androideabi
+      - name: Build zygisk module zip
+        run: |
+          cd zygisk
+          python3 ./build.py
+      - name: Upload zygisk artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: vpnhide-zygisk
+          path: zygisk/target/vpnhide-zygisk.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  # 可选：Ports 端口隐藏模块
+  portshide:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/okhsunrog/vpnhide/ci:latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Mark workspace safe
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Package ports module zip
+        run: |
+          cd portshide
+          python3 ./build-zip.py
+          mv vpnhide-ports.zip "$GITHUB_WORKSPACE/vpnhide-ports.zip"
+      - name: Upload ports artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: vpnhide-ports
+          path: vpnhide-ports.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  # KPM 后端（KernelPatch，适用于旧内核 / APatch）
+  kpm:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/okhsunrog/vpnhide/ci:latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: Mark workspace safe
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Build KPM module zip
+        run: |
+          if ! command -v clang >/dev/null || ! command -v ld.lld >/dev/null; then
+            apt-get update -qq && apt-get install -y --no-install-recommends clang lld >/dev/null
+          fi
+          python3 kmod/kpm/build.py
+      - name: Upload KPM artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: vpnhide-kpm
+          path: vpnhide-kpm.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  # 汇总：把所有产物打成一个 bundle，方便一次性下载
+  bundle:
+    needs: [kmod, apk, zygisk, portshide, kpm]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: all-artifacts
+      - name: Flatten into dist
+        run: |
+          mkdir -p dist
+          find all-artifacts -type f -not -path '*/kmod-activator/*' -exec cp {} dist/ \;
+          echo "===== 产物清单 ====="
+          ls -l dist
+      - name: Upload bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: vpnhide-bundle
+          path: dist
+          if-no-files-found: error
+          retention-days: 7
