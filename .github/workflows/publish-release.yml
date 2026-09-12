@@ -1,0 +1,66 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 把某次构建运行（Build artifacts）的全部产物导出为一个 GitHub Release
+#
+# 用途：Actions 产物的下载地址会重定向到 Azure Blob 存储（本机网络无法直连），
+#       而 Release 资源走 release-assets.githubusercontent.com，可正常下载。
+#
+# 触发方式：Actions → Publish bundle to release → Run workflow
+#   run_id = 目标构建的 run id（见 Build artifacts 运行页 URL）
+#   tag    = 发布的标签，例如 build-20260912
+# ─────────────────────────────────────────────────────────────────────────────
+name: Publish bundle to release
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "要导出的构建运行 ID（Build artifacts 运行的 run id）"
+        required: true
+        type: string
+      tag:
+        description: "Release 标签"
+        required: true
+        type: string
+        default: "build"
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts from the build run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          mkdir -p all dist
+          gh run download "${{ inputs.run_id }}" --repo "${{ github.repository }}" --dir all
+          find all -type f \
+            -not -path '*/kmod-activator/*' \
+            -not -path '*/vpnhide-bundle/*' \
+            -not -path '*/dist/*' \
+            -exec cp -f {} dist/ \;
+          echo "===== 导出清单 ====="
+          ls -l dist
+
+      - name: Zip everything into one bundle
+        run: |
+          cd dist
+          zip -r ../vpnhide-bundle.zip .
+
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          gh release delete "${{ inputs.tag }}" --repo "${{ github.repository }}" --yes --cleanup-tag || true
+          gh release create "${{ inputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --title "vpnhide 构建产物 ${{ inputs.tag }}" \
+            --notes "由 Build artifacts 工作流（run ${{ inputs.run_id }}）导出的安装包合集。" \
+            dist/* vpnhide-bundle.zip
+          echo "===== 发布完成 ====="
+          gh release view "${{ inputs.tag }}" --repo "${{ github.repository }}" --json assets --jq '.assets[] | "\(.name)  \(.size) bytes"'
